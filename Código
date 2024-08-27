@@ -1,0 +1,143 @@
+//Universidad del Valle de Guatemala 
+//Andrea Samayoa 
+//Carnet: 22180
+#include <Arduino.h>
+#include "driver/ledc.h"
+#include "config.h"
+
+
+// Definición de pines
+#define LM35_PIN 34 // Pin para el sensor LM35
+#define BUTTON_PIN 25 // Pin para el botón de adquisición
+#define LED_R_PIN 12 // Pin para LED Rojo o canal rojo del LED RGB
+#define LED_G_PIN 13 // Pin para LED Verde o canal verde del LED RGB
+#define LED_B_PIN 14 // Pin para LED Azul o canal azul del LED RGB
+#define SERVO_PIN 26 // Pin para el servo motor
+#define SEG_A 4 // Pines del display de 7 segmentos
+#define SEG_B 5
+#define SEG_C 18
+#define SEG_D 19
+#define SEG_E 21
+#define SEG_F 22
+#define SEG_G 23
+#define SEG_DP 2 // Pin para el punto decimal
+#define DISP1 15 // Transistor 1 para el primer display
+#define DISP2 16 // Transistor 2 para el segundo display
+#define DISP3 17 // Transistor 3 para el tercer display
+
+AdafruitIO_Feed *temperature_feed = io.feed("temperature");
+
+Servo servo;
+float temperature = 0;
+int display_value = 0;
+
+void setup() {
+  // Configuración de pines
+  pinMode(LM35_PIN, INPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(LED_R_PIN, OUTPUT);
+  pinMode(LED_G_PIN, OUTPUT);
+  pinMode(LED_B_PIN, OUTPUT);
+  pinMode(DISP1, OUTPUT);
+  pinMode(DISP2, OUTPUT);
+  pinMode(DISP3, OUTPUT);
+  
+  // Configuración del servo
+  servo.attach(SERVO_PIN);
+
+  // Inicialización de Adafruit IO
+  io.connect();
+  
+  while(io.status() < AIO_CONNECTED) {
+    delay(500);
+  }
+}
+
+void loop() {
+  io.run();
+  
+  if(digitalRead(BUTTON_PIN) == LOW) {
+    delay(200); // Debounce
+    readTemperature();
+    updateLED();
+    updateServo();
+    updateDisplay();
+    sendToAdafruitIO();
+  }
+}
+
+void readTemperature() {
+  int adcValue = analogRead(LM35_PIN);
+  temperature = (adcValue * 3.3 / 4095.0) * 100.0; // Conversión a grados Celsius
+  display_value = (int)(temperature * 10); // Multiplicamos por 10 para mostrar un decimal
+}
+
+void updateLED() {
+  if (temperature < 37.0) {
+    analogWrite(LED_R_PIN, 0);
+    analogWrite(LED_G_PIN, 255);
+    analogWrite(LED_B_PIN, 0);
+  } else if (temperature < 37.5) {
+    analogWrite(LED_R_PIN, 255);
+    analogWrite(LED_G_PIN, 165);
+    analogWrite(LED_B_PIN, 0);
+  } else {
+    analogWrite(LED_R_PIN, 255);
+    analogWrite(LED_G_PIN, 0);
+    analogWrite(LED_B_PIN, 0);
+  }
+}
+
+void updateServo() {
+  int angle = map(temperature, 35, 40, 0, 180);
+  servo.write(angle);
+}
+
+void updateDisplay() {
+  int hundreds = display_value / 100;
+  int tens = (display_value / 10) % 10;
+  int units = display_value % 10;
+  
+  // Muestra el valor en los displays usando multiplexeo
+  displayDigit(hundreds, DISP1);
+  delay(5);
+  displayDigit(tens, DISP2);
+  delay(5);
+  displayDigit(units, DISP3);
+  delay(5);
+}
+
+void displayDigit(int digit, int displayPin) {
+  digitalWrite(DISP1, LOW);
+  digitalWrite(DISP2, LOW);
+  digitalWrite(DISP3, LOW);
+  digitalWrite(displayPin, HIGH);
+  
+  switch(digit) {
+    case 0: setSegments(1,1,1,1,1,1,0); break;
+    case 1: setSegments(0,1,1,0,0,0,0); break;
+    case 2: setSegments(1,1,0,1,1,0,1); break;
+    case 3: setSegments(1,1,1,1,0,0,1); break;
+    case 4: setSegments(0,1,1,0,0,1,1); break;
+    case 5: setSegments(1,0,1,1,0,1,1); break;
+    case 6: setSegments(1,0,1,1,1,1,1); break;
+    case 7: setSegments(1,1,1,0,0,0,0); break;
+    case 8: setSegments(1,1,1,1,1,1,1); break;
+    case 9: setSegments(1,1,1,0,0,1,1); break;
+  }
+}
+
+void setSegments(int a, int b, int c, int d, int e, int f, int g) {
+  digitalWrite(SEG_A, a);
+  digitalWrite(SEG_B, b);
+  digitalWrite(SEG_C, c);
+  digitalWrite(SEG_D, d);
+  digitalWrite(SEG_E, e);
+  digitalWrite(SEG_F, f);
+  digitalWrite(SEG_G, g);
+  digitalWrite(SEG_DP, HIGH); // Activar punto decimal
+}
+
+void sendToAdafruitIO() {
+  temperature_feed->save(temperature);
+}
